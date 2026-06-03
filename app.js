@@ -104,26 +104,42 @@ let audioCtx = null;
 let isPlaying = false;
 let metalLoopInterval = null;
 let activeOscillators = [];
-let distortionNode = null;
+let bgAudio = null;
+let useMP3 = false;
 
 // Black Metal guitar scales: Minor/Phrygian (E, F, G, A, A#, B)
 const riffNotes = [82.41, 87.31, 98.00, 110.00, 116.54, 123.47, 164.81, 174.61, 196.00];
 
+// Pre-load metal.mp3 if it exists
 function initAudio() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    if (!bgAudio) {
+        bgAudio = new Audio('metal.mp3');
+        bgAudio.loop = true;
+        bgAudio.volume = 0.4;
+        
+        bgAudio.addEventListener('canplaythrough', () => {
+            useMP3 = true;
+            console.log("metal.mp3 loaded successfully.");
+        });
+        
+        bgAudio.addEventListener('error', () => {
+            useMP3 = false;
+            console.log("metal.mp3 not found or failed to load. Using Web Audio Synth fallback.");
+        });
+    }
 }
 
-function makeDistortionCurve(amount) {
-    const k = typeof amount === 'number' ? amount : 50;
-    const n_samples = 44100;
-    const curve = new Float32Array(n_samples);
-    const deg = Math.PI / 180;
-    for (let i = 0; i < n_samples; ++i) {
-        const x = (i * 2) / n_samples - 1;
-        curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
-    }
-    return curve;
-}
+// Call initAudio on page load to start checking for the file immediately
+window.addEventListener('DOMContentLoaded', () => {
+    // Try to trigger audio init preparation
+    bgAudio = new Audio('metal.mp3');
+    bgAudio.loop = true;
+    bgAudio.volume = 0.4;
+    bgAudio.addEventListener('canplaythrough', () => { useMP3 = true; });
+    bgAudio.addEventListener('error', () => { useMP3 = false; });
+});
 
 function playAmbientSound() {
     if (!audioCtx) initAudio();
@@ -137,38 +153,41 @@ function playAmbientSound() {
     toggleBtn.classList.add('playing');
     toggleBtn.querySelector('i').className = 'fas fa-volume-up';
 
-    // Riff Loop & Blast Beats
-    let step = 0;
-    
-    // Play a funny metal intro scream / jiji
     playJijiScream();
 
+    if (useMP3 && bgAudio) {
+        bgAudio.play().catch(err => {
+            console.log("MP3 autoplay blocked or failed, falling back to synth:", err);
+            startSynthLoop();
+        });
+    } else {
+        startSynthLoop();
+    }
+}
+
+function startSynthLoop() {
+    let step = 0;
     metalLoopInterval = setInterval(() => {
         const time = audioCtx.currentTime;
         
-        // Tremolo picked riff (alternating high speed notes)
-        // Pick a base note that changes every 8 steps
         const baseNoteIndex = Math.floor(step / 8) % riffNotes.length;
-        // Alternate with minor second for that classic dark Norwegian feel
         const offset = (step % 2 === 0) ? 0 : 1;
         const currentFreq = riffNotes[(baseNoteIndex + offset) % riffNotes.length];
         
         playGuitarNote(currentFreq, time, 0.15);
 
-        // Blast beats (Kick and Snare noise)
         if (step % 2 === 0) {
             playKickDrum(time);
         } else {
             playSnareDrum(time);
         }
 
-        // Random little giggle/screech every 32 steps
         if (step % 32 === 0 && Math.random() > 0.4) {
             playJijiScream();
         }
 
         step++;
-    }, 150); // Fast 150ms blast beat loop!
+    }, 150);
 }
 
 function stopAmbientSound() {
@@ -176,6 +195,10 @@ function stopAmbientSound() {
     const toggleBtn = document.getElementById('sound-toggle');
     toggleBtn.classList.remove('playing');
     toggleBtn.querySelector('i').className = 'fas fa-volume-mute';
+
+    if (bgAudio) {
+        bgAudio.pause();
+    }
 
     if (metalLoopInterval) {
         clearInterval(metalLoopInterval);
