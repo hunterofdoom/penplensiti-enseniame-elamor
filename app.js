@@ -111,11 +111,6 @@ const riffNotes = [82.41, 87.31, 98.00, 110.00, 116.54, 123.47, 164.81, 174.61, 
 
 function initAudio() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    
-    // Create the distortion shaper
-    distortionNode = audioCtx.createWaveShaper();
-    distortionNode.curve = makeDistortionCurve(180); // Heavy metal saturation
-    distortionNode.oversample = '4x';
 }
 
 function makeDistortionCurve(amount) {
@@ -195,44 +190,74 @@ function stopAmbientSound() {
     activeOscillators = [];
 }
 
-// Distorted Guitar Sound Generator
+// Distorted Guitar Sound Generator (Realistic physical modeling)
 function playGuitarNote(frequency, startTime, duration) {
-    if (!audioCtx || !distortionNode) return;
+    if (!audioCtx) return;
 
+    // Detuned sawtooth and square waves for string friction
     const osc1 = audioCtx.createOscillator();
     const osc2 = audioCtx.createOscillator();
+    const oscSub = audioCtx.createOscillator();
+    
+    const preGain = audioCtx.createGain();
+    const distortionNode = audioCtx.createWaveShaper();
+    const cabinetLowpass = audioCtx.createBiquadFilter();
+    const cabinetHighpass = audioCtx.createBiquadFilter();
+    const presenceFilter = audioCtx.createBiquadFilter();
     const gainNode = audioCtx.createGain();
-    const filter = audioCtx.createBiquadFilter();
 
+    // Setup waveforms
     osc1.type = 'sawtooth';
     osc1.frequency.setValueAtTime(frequency, startTime);
-    
-    // Detuned second oscillator for fatness
-    osc2.type = 'sawtooth';
-    osc2.frequency.setValueAtTime(frequency * 1.015, startTime);
 
-    // Cabinet simulation EQ
-    filter.type = 'bandpass';
-    filter.frequency.setValueAtTime(800, startTime);
-    filter.Q.setValueAtTime(1.0, startTime);
+    osc2.type = 'square';
+    osc2.frequency.setValueAtTime(frequency * 1.008, startTime); // detune square wave for rasp
 
+    oscSub.type = 'sawtooth';
+    oscSub.frequency.setValueAtTime(frequency * 0.5, startTime); // heavy sub-octave string rumble
+
+    // Saturation and distortion parameters
+    preGain.gain.setValueAtTime(20.0, startTime); // Drive waveshaper hard
+    distortionNode.curve = makeDistortionCurve(220); // Thick clipping curve
+    distortionNode.oversample = '4x';
+
+    // Cabinet simulation EQ:
+    // Cuts out extreme highs and mud, boosting metallic mid presence
+    cabinetLowpass.type = 'lowpass';
+    cabinetLowpass.frequency.setValueAtTime(2800, startTime); // Cut standard synth fuzz buzz
+
+    cabinetHighpass.type = 'highpass';
+    cabinetHighpass.frequency.setValueAtTime(80, startTime); // Cut low mud rumble
+
+    presenceFilter.type = 'peaking';
+    presenceFilter.frequency.setValueAtTime(1400, startTime); // High presence bite
+    presenceFilter.Q.setValueAtTime(1.5, startTime);
+    presenceFilter.gain.setValueAtTime(10.0, startTime); // Boost guitar midrange
+
+    // Fast decay and sharp pluck envelope
     gainNode.gain.setValueAtTime(0, startTime);
-    gainNode.gain.linearRampToValueAtTime(0.04, startTime + 0.02); // rapid rise
+    gainNode.gain.linearRampToValueAtTime(0.045, startTime + 0.015);
     gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + duration - 0.01);
 
-    // Routing: Oscs -> Distortion -> Bandpass Filter -> Gain -> Destination
-    osc1.connect(distortionNode);
-    osc2.connect(distortionNode);
+    // Route: Oscs -> PreGain -> Distortion -> Cab Lowpass -> Cab Highpass -> Presence -> Output Gain -> Destination
+    osc1.connect(preGain);
+    osc2.connect(preGain);
+    oscSub.connect(preGain);
     
-    distortionNode.connect(filter);
-    filter.connect(gainNode);
+    preGain.connect(distortionNode);
+    distortionNode.connect(cabinetLowpass);
+    cabinetLowpass.connect(cabinetHighpass);
+    cabinetHighpass.connect(presenceFilter);
+    presenceFilter.connect(gainNode);
     gainNode.connect(audioCtx.destination);
 
     osc1.start(startTime);
     osc2.start(startTime);
+    oscSub.start(startTime);
     
     osc1.stop(startTime + duration);
     osc2.stop(startTime + duration);
+    oscSub.stop(startTime + duration);
 }
 
 // Synthesized Kick Drum
