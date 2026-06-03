@@ -1,10 +1,10 @@
 /* ==========================================================================
-   STARRY/NEBULA BACKGROUND CANVAS
+   BURNING EMBERS / BONFIRE BACKGROUND CANVAS
    ========================================================================== */
 const canvas = document.getElementById('bg-canvas');
 const ctx = canvas.getContext('2d');
 
-let stars = [];
+let embers = [];
 let width = window.innerWidth;
 let height = window.innerHeight;
 
@@ -16,92 +16,118 @@ window.addEventListener('resize', () => {
     height = window.innerHeight;
     canvas.width = width;
     canvas.height = height;
-    initStars();
+    initEmbers();
 });
 
-class Star {
+class Ember {
     constructor() {
-        this.x = Math.random() * width;
+        this.reset();
+        // Stagger spawn heights initially
         this.y = Math.random() * height;
-        this.size = Math.random() * 1.5;
-        this.speedX = (Math.random() - 0.5) * 0.05;
-        this.speedY = (Math.random() - 0.5) * 0.05;
-        this.alpha = Math.random();
-        this.alphaSpeed = 0.005 + Math.random() * 0.01;
+    }
+
+    reset() {
+        this.x = Math.random() * width;
+        this.y = height + Math.random() * 50;
+        this.size = 1 + Math.random() * 3;
+        this.speedY = -(0.5 + Math.random() * 1.5);
+        this.speedX = (Math.random() - 0.5) * 0.4;
+        // Warm fiery colors: orange, red, yellow
+        const r = 200 + Math.floor(Math.random() * 55);
+        const g = 30 + Math.floor(Math.random() * 120);
+        const b = 0;
+        this.color = `${r}, ${g}, ${b}`;
+        this.alpha = 0.5 + Math.random() * 0.5;
+        this.decay = 0.001 + Math.random() * 0.003;
     }
 
     update() {
-        this.x += this.speedX;
         this.y += this.speedY;
+        this.x += this.speedX + Math.sin(this.y / 30) * 0.2; // sway as they rise
+        this.alpha -= this.decay;
 
-        // Wrap around boundaries
-        if (this.x < 0) this.x = width;
-        if (this.x > width) this.x = 0;
-        if (this.y < 0) this.y = height;
-        if (this.y > height) this.y = 0;
-
-        // Twinkle
-        this.alpha += this.alphaSpeed;
-        if (this.alpha > 1 || this.alpha < 0) {
-            this.alphaSpeed = -this.alphaSpeed;
+        if (this.alpha <= 0 || this.y < -20) {
+            this.reset();
         }
     }
 
     draw() {
-        ctx.fillStyle = `rgba(255, 255, 255, ${Math.max(0, this.alpha)})`;
+        ctx.fillStyle = `rgba(${this.color}, ${this.alpha})`;
+        ctx.shadowColor = `rgba(${this.color}, 0.5)`;
+        ctx.shadowBlur = this.size * 2;
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
         ctx.fill();
+        ctx.shadowBlur = 0; // reset
     }
 }
 
-function initStars() {
-    stars = [];
-    const starCount = Math.floor((width * height) / 8000);
-    for (let i = 0; i < starCount; i++) {
-        stars.push(new Star());
+function initEmbers() {
+    embers = [];
+    const count = Math.floor((width * height) / 9000);
+    for (let i = 0; i < count; i++) {
+        embers.push(new Ember());
     }
 }
 
 function animateBackground() {
-    // Semi-transparent background clear to create slight nebula trailing (glowing sky)
-    ctx.fillStyle = '#090714';
+    // Solid deep dark purple/black sky
+    ctx.fillStyle = '#07050a';
     ctx.fillRect(0, 0, width, height);
 
-    // Draw a soft glowing gradient in the center/bottom
+    // Vignette / central red-violet glowing aura
     const gradient = ctx.createRadialGradient(
-        width / 2, height / 2, 10,
+        width / 2, height / 2, 20,
         width / 2, height / 2, Math.max(width, height)
     );
-    gradient.addColorStop(0, '#130d2b');
-    gradient.addColorStop(0.5, '#0b0819');
-    gradient.addColorStop(1, '#05040a');
+    gradient.addColorStop(0, '#16081e');
+    gradient.addColorStop(0.6, '#0b0610');
+    gradient.addColorStop(1, '#050207');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
 
-    stars.forEach(star => {
-        star.update();
-        star.draw();
+    embers.forEach(ember => {
+        ember.update();
+        ember.draw();
     });
 
     requestAnimationFrame(animateBackground);
 }
 
-initStars();
+initEmbers();
 animateBackground();
 
 /* ==========================================================================
-   AMBIENT AUDIO SYNTHESIZER (WEB AUDIO API)
+   LO-FI BLACK METAL SYNTHESIZER (WEB AUDIO API)
    ========================================================================== */
 let audioCtx = null;
 let isPlaying = false;
-let synthInterval = null;
+let metalLoopInterval = null;
 let activeOscillators = [];
+let distortionNode = null;
 
-const notes = [130.81, 146.83, 164.81, 196.00, 220.00, 261.63, 293.66, 329.63, 392.00, 440.00]; // Pentatonic Scale C major
+// Black Metal guitar scales: Minor/Phrygian (E, F, G, A, A#, B)
+const riffNotes = [82.41, 87.31, 98.00, 110.00, 116.54, 123.47, 164.81, 174.61, 196.00];
 
 function initAudio() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    // Create the distortion shaper
+    distortionNode = audioCtx.createWaveShaper();
+    distortionNode.curve = makeDistortionCurve(180); // Heavy metal saturation
+    distortionNode.oversample = '4x';
+}
+
+function makeDistortionCurve(amount) {
+    const k = typeof amount === 'number' ? amount : 50;
+    const n_samples = 44100;
+    const curve = new Float32Array(n_samples);
+    const deg = Math.PI / 180;
+    for (let i = 0; i < n_samples; ++i) {
+        const x = (i * 2) / n_samples - 1;
+        curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
+    }
+    return curve;
 }
 
 function playAmbientSound() {
@@ -112,48 +138,54 @@ function playAmbientSound() {
     }
 
     isPlaying = true;
-    document.getElementById('sound-toggle').classList.add('playing');
-    document.getElementById('sound-toggle').querySelector('i').className = 'fas fa-volume-up';
+    const toggleBtn = document.getElementById('sound-toggle');
+    toggleBtn.classList.add('playing');
+    toggleBtn.querySelector('i').className = 'fas fa-volume-up';
 
-    // Start a master volume node
-    const masterGain = audioCtx.createGain();
-    masterGain.gain.setValueAtTime(0.08, audioCtx.currentTime); // keep it very soft and background-friendly
-    masterGain.connect(audioCtx.destination);
+    // Riff Loop & Blast Beats
+    let step = 0;
+    
+    // Play a funny metal intro scream / jiji
+    playJijiScream();
 
-    // Continuous drone synth (warm pad)
-    const baseDrone1 = audioCtx.createOscillator();
-    const baseDrone2 = audioCtx.createOscillator();
-    const droneGain = audioCtx.createGain();
-    
-    baseDrone1.type = 'triangle';
-    baseDrone1.frequency.setValueAtTime(65.41, audioCtx.currentTime); // C2
-    
-    baseDrone2.type = 'sine';
-    baseDrone2.frequency.setValueAtTime(98.00, audioCtx.currentTime); // G2
+    metalLoopInterval = setInterval(() => {
+        const time = audioCtx.currentTime;
+        
+        // Tremolo picked riff (alternating high speed notes)
+        // Pick a base note that changes every 8 steps
+        const baseNoteIndex = Math.floor(step / 8) % riffNotes.length;
+        // Alternate with minor second for that classic dark Norwegian feel
+        const offset = (step % 2 === 0) ? 0 : 1;
+        const currentFreq = riffNotes[(baseNoteIndex + offset) % riffNotes.length];
+        
+        playGuitarNote(currentFreq, time, 0.15);
 
-    droneGain.gain.setValueAtTime(0.05, audioCtx.currentTime);
-    
-    baseDrone1.connect(droneGain);
-    baseDrone2.connect(droneGain);
-    droneGain.connect(masterGain);
-    
-    baseDrone1.start();
-    baseDrone2.start();
-    activeOscillators.push(baseDrone1, baseDrone2);
+        // Blast beats (Kick and Snare noise)
+        if (step % 2 === 0) {
+            playKickDrum(time);
+        } else {
+            playSnareDrum(time);
+        }
 
-    // Random bell chords trigger every 4 seconds
-    triggerBellNotes(masterGain);
-    synthInterval = setInterval(() => {
-        triggerBellNotes(masterGain);
-    }, 4000);
+        // Random little giggle/screech every 32 steps
+        if (step % 32 === 0 && Math.random() > 0.4) {
+            playJijiScream();
+        }
+
+        step++;
+    }, 150); // Fast 150ms blast beat loop!
 }
 
 function stopAmbientSound() {
     isPlaying = false;
-    document.getElementById('sound-toggle').classList.remove('playing');
-    document.getElementById('sound-toggle').querySelector('i').className = 'fas fa-volume-mute';
+    const toggleBtn = document.getElementById('sound-toggle');
+    toggleBtn.classList.remove('playing');
+    toggleBtn.querySelector('i').className = 'fas fa-volume-mute';
 
-    if (synthInterval) clearInterval(synthInterval);
+    if (metalLoopInterval) {
+        clearInterval(metalLoopInterval);
+        metalLoopInterval = null;
+    }
 
     activeOscillators.forEach(osc => {
         try {
@@ -163,34 +195,118 @@ function stopAmbientSound() {
     activeOscillators = [];
 }
 
-function triggerBellNotes(destination) {
+// Distorted Guitar Sound Generator
+function playGuitarNote(frequency, startTime, duration) {
+    if (!audioCtx || !distortionNode) return;
+
+    const osc1 = audioCtx.createOscillator();
+    const osc2 = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+
+    osc1.type = 'sawtooth';
+    osc1.frequency.setValueAtTime(frequency, startTime);
+    
+    // Detuned second oscillator for fatness
+    osc2.type = 'sawtooth';
+    osc2.frequency.setValueAtTime(frequency * 1.015, startTime);
+
+    // Cabinet simulation EQ
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(800, startTime);
+    filter.Q.setValueAtTime(1.0, startTime);
+
+    gainNode.gain.setValueAtTime(0, startTime);
+    gainNode.gain.linearRampToValueAtTime(0.04, startTime + 0.02); // rapid rise
+    gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + duration - 0.01);
+
+    // Routing: Oscs -> Distortion -> Bandpass Filter -> Gain -> Destination
+    osc1.connect(distortionNode);
+    osc2.connect(distortionNode);
+    
+    distortionNode.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    osc1.start(startTime);
+    osc2.start(startTime);
+    
+    osc1.stop(startTime + duration);
+    osc2.stop(startTime + duration);
+}
+
+// Synthesized Kick Drum
+function playKickDrum(startTime) {
+    const osc = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(120, startTime);
+    // Rapid pitch sweep down
+    osc.frequency.exponentialRampToValueAtTime(0.01, startTime + 0.08);
+
+    gainNode.gain.setValueAtTime(0.2, startTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + 0.09);
+
+    osc.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    osc.start(startTime);
+    osc.stop(startTime + 0.1);
+}
+
+// Synthesized Snare/Noise Burst
+function playSnareDrum(startTime) {
+    // Simple short burst of highpass-filtered noise or high frequency sine
+    const osc = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(350, startTime);
+
+    gainNode.gain.setValueAtTime(0.12, startTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + 0.08);
+
+    osc.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    osc.start(startTime);
+    osc.stop(startTime + 0.09);
+}
+
+// Siniestra risita / Chillido ("jiji" / "scream")
+function playJijiScream() {
     if (!audioCtx || audioCtx.state === 'suspended') return;
-
-    // Pick 2-3 random notes from pentatonic scale
-    const chordCount = 2 + Math.floor(Math.random() * 2);
-    const now = audioCtx.currentTime;
-
-    for (let i = 0; i < chordCount; i++) {
-        const randNote = notes[Math.floor(Math.random() * notes.length)];
-        const delay = Math.random() * 1.5; // Arpeggiate them slightly
-
-        const osc = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(randNote, now + delay);
-
-        // Slow attack, long decay (bell envelope)
-        gainNode.gain.setValueAtTime(0, now + delay);
-        gainNode.gain.linearRampToValueAtTime(0.3, now + delay + 0.1);
-        gainNode.gain.exponentialRampToValueAtTime(0.001, now + delay + 3.0);
-
-        osc.connect(gainNode);
-        gainNode.connect(destination);
-
-        osc.start(now + delay);
-        osc.stop(now + delay + 3.2);
-    }
+    
+    const time = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    
+    osc.type = 'sine';
+    // Sweeps up rapidly like a high-pitched cartoon evil laugh
+    osc.frequency.setValueAtTime(800, time);
+    osc.frequency.linearRampToValueAtTime(2400, time + 0.4);
+    
+    // Add vibrato/tremolo to the giggle
+    const lfo = audioCtx.createOscillator();
+    const lfoGain = audioCtx.createGain();
+    lfo.frequency.setValueAtTime(25, time); // 25Hz rapid wobble
+    lfoGain.gain.setValueAtTime(200, time);
+    
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+    
+    gain.gain.setValueAtTime(0, time);
+    gain.gain.linearRampToValueAtTime(0.05, time + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.55);
+    
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    
+    lfo.start(time);
+    osc.start(time);
+    lfo.stop(time + 0.6);
+    osc.stop(time + 0.6);
 }
 
 // User toggle sound listener
@@ -212,7 +328,6 @@ const cards = document.querySelectorAll('.card');
 nextButtons.forEach(btn => {
     btn.addEventListener('click', (e) => {
         const targetId = btn.getAttribute('data-target');
-        // Save form content to state/localStorage
         saveCurrentReflections();
         showCard(targetId);
     });
@@ -232,16 +347,19 @@ function showCard(id) {
     const targetCard = document.getElementById(id);
     targetCard.classList.add('active');
     
-    // Auto-resume breathing text if page is step-1
     if (id === 'step-1') {
         startBreathingTextLogic();
     } else {
         stopBreathingTextLogic();
     }
 
-    // Populate summaries if card is the summary
     if (id === 'summary-section') {
         populateSummaryScroll();
+    }
+    
+    // Play a giggle when changing sections
+    if (isPlaying) {
+        playJijiScream();
     }
 }
 
@@ -256,10 +374,10 @@ function startBreathingTextLogic() {
 
     let cycleCount = 0;
     const cycleStates = [
-        { text: "Inhala...", duration: 3200 },
-        { text: "Sostén...", duration: 800 },
-        { text: "Exhala...", duration: 3200 },
-        { text: "Sostén...", duration: 800 }
+        { text: "Inhala el vacío...", duration: 3200 },
+        { text: "Sostén la llama...", duration: 800 },
+        { text: "Exhala el pop...", duration: 3200 },
+        { text: "Sostén el abismo...", duration: 800 }
     ];
 
     function runCycle() {
@@ -292,7 +410,6 @@ choiceButtons.forEach(btn => {
     btn.addEventListener('click', () => {
         const isCorrect = btn.getAttribute('data-correct') === 'true';
         
-        // Remove active colors
         choiceButtons.forEach(b => {
             b.classList.remove('selected-correct', 'selected-incorrect');
         });
@@ -302,14 +419,15 @@ choiceButtons.forEach(btn => {
         if (isCorrect) {
             btn.classList.add('selected-correct');
             feedbackContainer.classList.add('correct');
-            feedbackContainer.innerHTML = `<i class="fas fa-check-circle"></i> <strong>¡Exacto!</strong> Esta respuesta demuestra empatía genuina al validar sus sentimientos, ofrecer tu presencia silenciosa y abrir un espacio seguro sin juzgar ni forzar soluciones apresuradas.`;
+            feedbackContainer.innerHTML = `<i class="fas fa-check-circle"></i> <strong>¡TRUE!</strong> Exacto, jiji. Ofrecer tu hombro metalero y validar que la lluvia noruega daña el corpse paint es auténtico amor oscuro. Escucha activa extrema.`;
+            if (isPlaying) playGuitarNote(261.63, audioCtx.currentTime, 0.4); // little guitar shred approval
         } else {
             btn.classList.add('selected-incorrect');
             feedbackContainer.classList.add('incorrect');
             const explanation = btn.querySelector('.choice-letter').textContent === 'A' 
-                ? "Esta respuesta minimiza su sufrimiento, haciéndole sentir incomprendido o culpable por estar mal."
-                : "Intentar dar consejos prácticos de inmediato es un impulso común, pero a menudo invalida el peso emocional y corta la conexión. Primero conecta, luego apoya.";
-            feedbackContainer.innerHTML = `<i class="fas fa-times-circle"></i> <strong>Sigue intentándolo:</strong> ${explanation}`;
+                ? "Llamarlo poser invalida su crisis existencial. Hasta Abbath de Immortal tiene sentimientos, jiji."
+                : "Intentar arreglarlo con consejos prácticos inmediatos es muy aburrido. Los verdaderos metaleros se sientan juntos en el cementerio a llorar primero.";
+            feedbackContainer.innerHTML = `<i class="fas fa-times-circle"></i> <strong>POSER DETECTADO:</strong> ${explanation}`;
         }
     });
 });
@@ -326,6 +444,10 @@ shieldItems.forEach(shield => {
             const back = shield.querySelector('.shield-back');
             const truthText = shield.getAttribute('data-truth');
             back.textContent = truthText;
+            
+            if (isPlaying) {
+                playJijiScream();
+            }
         }
     });
 });
@@ -343,13 +465,11 @@ const statusText = document.querySelector('.garden-status');
 
 let wateredDrops = new Set();
 
-// Desktop Drag and Drop
 waterDrops.forEach(drop => {
     drop.addEventListener('dragstart', (e) => {
         e.dataTransfer.setData('text/plain', drop.getAttribute('data-type'));
     });
 
-    // Make touch devices/clicks also trigger watering
     drop.addEventListener('click', () => {
         const type = drop.getAttribute('data-type');
         waterPlant(type, drop);
@@ -370,7 +490,6 @@ pot.addEventListener('drop', (e) => {
     pot.classList.remove('drag-over');
     const type = e.dataTransfer.getData('text/plain');
     
-    // Find the corresponding element
     const dropEl = Array.from(waterDrops).find(d => d.getAttribute('data-type') === type);
     if (dropEl) {
         waterPlant(type, dropEl);
@@ -379,7 +498,7 @@ pot.addEventListener('drop', (e) => {
 
 function waterPlant(type, element) {
     if (wateredDrops.has(type)) {
-        statusText.textContent = `Ya has regado con ${translateType(type)}. ¡Prueba con otra gota!`;
+        statusText.textContent = `Ya pusiste ${translateType(type)}. ¡Prueba con otro ingrediente!`;
         return;
     }
 
@@ -391,46 +510,47 @@ function waterPlant(type, element) {
     const totalWatered = wateredDrops.size;
     updateFlowerSVG(totalWatered);
 
-    // Set interactive status message
+    // Guitar noise feedback
+    if (isPlaying) {
+        playGuitarNote(146.83 * (1 + totalWatered * 0.2), audioCtx.currentTime, 0.35);
+    }
+
     switch (type) {
         case 'patience':
-            statusText.textContent = "Has regado Paciencia. Las raíces se asientan firmemente.";
+            statusText.textContent = "Has vertido Café Negro. Las raíces metaleras reviven.";
             break;
         case 'honesty':
-            statusText.textContent = "Has regado Honestidad. El tallo crece recto y fuerte.";
+            statusText.textContent = "Has vertido Blast Beats. El tallo crece con potencia destructiva.";
             break;
         case 'time':
-            statusText.textContent = "Has regado Tiempo. Las hojas se abren para absorber luz.";
+            statusText.textContent = "Has vertido Noches True. Brotaron espinas y hojas oscuras.";
             break;
         case 'kindness':
-            statusText.textContent = "Has regado Bondad. ¡Un hermoso capullo florece!";
+            statusText.textContent = "Has vertido Mimos Jiji. ¡La rosa del caos florece en sangre!";
             break;
     }
 
     if (totalWatered === 4) {
-        statusText.innerHTML = "<strong>¡Felicidades!</strong> Tu jardín del amor está floreciendo plenamente.";
+        statusText.innerHTML = "<strong>¡PACTO CUMPLIDO!</strong> La rosa negra del amor verdadero brilla en la oscuridad (jiji).";
     }
 }
 
 function translateType(type) {
-    const map = { patience: 'Paciencia', honesty: 'Honestidad', time: 'Tiempo', kindness: 'Bondad' };
+    const map = { patience: 'Café Negro', honesty: 'Blast Beats', time: 'Noches True', kindness: 'Mimos Jiji' };
     return map[type] || type;
 }
 
 function updateFlowerSVG(level) {
-    // Grow stem
     if (level === 1) {
-        stem.setAttribute('d', 'M 100,245 Q 90,210 100,185');
+        stem.setAttribute('d', 'M 100,220 Q 90,190 100,165');
     } else if (level === 2) {
-        stem.setAttribute('d', 'M 100,245 Q 90,210 100,170 T 95,140');
+        stem.setAttribute('d', 'M 100,220 Q 90,190 100,150 T 95,120');
         leafL.classList.add('visible-element');
     } else if (level === 3) {
-        stem.setAttribute('d', 'M 100,245 Q 90,210 100,170 T 95,130 T 100,105');
+        stem.setAttribute('d', 'M 100,220 Q 90,190 100,150 T 95,110 T 100,85');
         leafR.classList.add('visible-element');
     } else if (level === 4) {
-        stem.setAttribute('d', 'M 100,245 Q 90,210 100,170 T 95,130 T 100,100');
-        // Reposition flower head slightly depending on stem end
-        flowerHead.setAttribute('transform', 'translate(0, 0)');
+        stem.setAttribute('d', 'M 100,220 Q 90,190 100,150 T 95,110 T 100,80');
         flowerHead.classList.add('visible-element');
     }
 }
@@ -457,7 +577,7 @@ function populateSummaryScroll() {
                 summaryText.textContent = storedVal;
                 summaryText.style.fontStyle = "normal";
             } else {
-                summaryText.innerHTML = `<em>No dejaste ninguna anotación para esta sección...</em>`;
+                summaryText.innerHTML = `<em>No dejaste ninguna anotación en el grimorio...</em>`;
                 summaryText.style.fontStyle = "italic";
             }
         }
@@ -467,33 +587,29 @@ function populateSummaryScroll() {
 // Restart buttons
 const restartBtn = document.getElementById('restart-btn');
 restartBtn.addEventListener('click', () => {
-    // Clear localStorage values
     for (let i = 1; i <= 4; i++) {
         localStorage.removeItem(`journal_${i}`);
         const textarea = document.getElementById(`journal-${i}`);
         if (textarea) textarea.value = "";
     }
 
-    // Reset garden state
     wateredDrops.clear();
     waterDrops.forEach(drop => {
         drop.style.opacity = '1';
         drop.style.pointerEvents = 'auto';
         drop.setAttribute('draggable', 'true');
     });
-    stem.setAttribute('d', 'M 100,245 Q 100,245 100,245');
+    stem.setAttribute('d', 'M 100,220 Q 100,220 100,220');
     leafL.classList.remove('visible-element');
     leafR.classList.remove('visible-element');
     flowerHead.classList.remove('visible-element');
-    statusText.textContent = "La semilla del amor espera tus cuidados...";
+    statusText.textContent = "Invoca el poder de la rosa del amor eterno...";
 
-    // Reset empathy choices
     choiceButtons.forEach(b => {
         b.classList.remove('selected-correct', 'selected-incorrect');
     });
     feedbackContainer.classList.add('hidden');
 
-    // Reset shields
     shieldItems.forEach(shield => {
         shield.classList.remove('flipped');
     });
